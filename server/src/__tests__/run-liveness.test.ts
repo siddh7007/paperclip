@@ -106,6 +106,66 @@ describe("run liveness classifier", () => {
     expect(classification.livenessState).toBe("advanced");
   });
 
+  it("does not treat acknowledgement-only comments as progress", () => {
+    const latestEvidenceAt = new Date("2026-04-18T12:00:00Z");
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issue: {
+        status: "in_progress",
+        title: "Planning bucket",
+        description: "Coordinate child work.",
+      },
+      issueCommentBodies: [
+        [
+          "Continuation check for PAP-1.",
+          "Confirmed the child issue is already assigned to another agent.",
+          "Disposition: leaving PAP-1 in_progress as the parent bucket while child work proceeds.",
+          "No code was edited and I did not start a competing stream.",
+        ].join("\n"),
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        latestEvidenceAt,
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+    expect(classification.livenessReason).toContain("acknowledgement-only");
+    expect(classification.lastUsefulActionAt).toBeNull();
+  });
+
+  it("does not let planning-bucket acknowledgements use the planning exemption", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issue: {
+        status: "in_progress",
+        title: "Implementation planning bucket",
+        description: "Create a plan and coordinate child slices.",
+      },
+      resultJson: {
+        summary: "Steward update: reviewed the board state; no action required. Keeping PAP-1 in_progress as the parent bucket.",
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+  });
+
+  it("still treats comments with a concrete delegation as progress", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issueCommentBodies: [
+        "Status update: created follow-up issue PAP-2 and assigned it to Engineering. Next action: PAP-2 implements the slice.",
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        activityEventsCreated: 1,
+        latestEvidenceAt: new Date("2026-04-18T12:00:00Z"),
+      },
+    });
+
+    expect(classification.livenessState).toBe("advanced");
+  });
+
   it("classifies done issues as completed", () => {
     const classification = classifyRunLiveness({
       ...baseInput,
