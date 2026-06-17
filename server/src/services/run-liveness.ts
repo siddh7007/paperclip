@@ -75,6 +75,10 @@ const RUNNABLE_RE =
 const PLAN_TASK_TITLE_RE = /\b(?:plan|planning|analysis|investigation|research|report|proposal|design doc|write-?up)\b/i;
 const PLAN_TASK_DESCRIPTION_RE =
   /\b(?:create|write|produce|draft|update|revise|prepare)\s+(?:a\s+|the\s+)?(?:plan|analysis|investigation|research report|report|proposal|design doc|write-?up)\b/i;
+const ACKNOWLEDGEMENT_ONLY_RE =
+  /\b(?:(?:acknowledg(?:e(?:d|ment)?|ing)|status update|steward update|continuation check|confirmed|reviewed|fetched|observed)\b[\s\S]{0,120}\b(?:no (?:code|repo files?|implementation|github|pr) (?:was )?(?:changed|edited|touched|mutated|opened)|did not (?:start|open|mutate|duplicate|change|edit)|not duplicating|no action (?:taken|required))|(?:leaving|keeping)\s+\S+\s+in[_ -]progress|\bparent bucket\b[\s\S]{0,160}\b(?:in[_ -]progress|child|children)\b)/i;
+const DISPOSITION_OR_ACTION_RE =
+  /\b(?:marked|moved|set|updated)\b[\s\S]{0,80}\b(?:done|cancelled|canceled|blocked|in_review|in review|todo)\b|\b(?:created|assigned|woke|delegated|opened|merged|pushed|filed|linked)\b[\s\S]{0,80}\b(?:issue|task|run|wake|pr|pull request|branch|blocker|follow-?up)\b|\b(?:next action|next step|unblock owner|recovery path)\s*:/i;
 
 function compactReason(reason: string) {
   return reason.length <= 500 ? reason : `${reason.slice(0, 497)}...`;
@@ -161,6 +165,13 @@ export function looksLikePlanningOnly(input: RunLivenessClassificationInput) {
   const text = actionabilityText(input);
   if (!text) return false;
   return PLANNING_ONLY_RE.test(text) || NEXT_STEPS_RE.test(text) || /^\s*next(?: steps?| action)?\s*:/im.test(text);
+}
+
+export function looksLikeAcknowledgementOnly(input: RunLivenessClassificationInput) {
+  const text = actionabilityText(input);
+  if (!text) return false;
+  if (!ACKNOWLEDGEMENT_ONLY_RE.test(text)) return false;
+  return !DISPOSITION_OR_ACTION_RE.test(text);
 }
 
 export function isPlanningOrDocumentTask(issue: RunLivenessIssueInput | null | undefined) {
@@ -299,6 +310,7 @@ export function classifyRunLiveness(input: RunLivenessClassificationInput): RunL
   const concreteEvidence = hasConcreteActionEvidence(evidence);
   const planExempt = isPlanningOrDocumentTask(input.issue) || evidence.planDocumentRevisionsCreated > 0;
   const lastUsefulActionAt = concreteEvidence ? evidence.latestEvidenceAt : null;
+  const acknowledgementOnly = looksLikeAcknowledgementOnly(input);
 
   const output = (state: RunLivenessState, reason: string, nextAction: string | null = null): RunLivenessClassification => ({
     livenessState: state,
@@ -323,6 +335,10 @@ export function classifyRunLiveness(input: RunLivenessClassificationInput): RunL
 
   if (!usefulOutput && !concreteEvidence) {
     return output("empty_response", "Run succeeded without useful output or concrete action evidence");
+  }
+
+  if (acknowledgementOnly) {
+    return output("empty_response", "Run produced acknowledgement-only/status-only output without a concrete disposition or action");
   }
 
   if (concreteEvidence) {
