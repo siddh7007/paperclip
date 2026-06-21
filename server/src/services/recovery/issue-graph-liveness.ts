@@ -9,7 +9,8 @@ export type IssueLivenessState =
   | "blocked_by_uninvokable_assignee"
   | "blocked_by_cancelled_issue"
   | "invalid_review_participant"
-  | "in_review_without_action_path";
+  | "in_review_without_action_path"
+  | "in_progress_without_action_path";
 
 export interface IssueLivenessIssueInput {
   id: string;
@@ -474,6 +475,35 @@ export function classifyIssueGraphLiveness(input: IssueGraphLivenessInput): Issu
     });
   }
 
+  function inProgressFinding(issue: IssueLivenessIssueInput): IssueLivenessFinding | null {
+    if (issue.status !== "in_progress") return null;
+    if (hasExplicitWaitingPath(issue)) return null;
+    if (issue.assigneeUserId) return null;
+    if (!issue.assigneeAgentId) return null;
+
+    const assignee = agentsById.get(issue.assigneeAgentId);
+    const assigneeEligibility = assignee
+      ? getAgentWorkEligibility({ agent: assignee, agents: input.agents })
+      : null;
+    if (!assignee || assignee.companyId !== issue.companyId || !assigneeEligibility?.invokable) return null;
+
+    const ownerCandidates = ownerCandidatesForRecoveryIssue(issue, input.agents, agentsById, {
+      includeStalledAssignee: true,
+    });
+
+    return finding({
+      issue,
+      state: "in_progress_without_action_path",
+      reason: `${issueLabel(issue)} is in progress with an invokable agent assignee but no active run, queued wake, human owner, interaction, approval, monitor, blocker, or recovery issue owning the next action.`,
+      dependencyPath: [issue],
+      recoveryIssue: issue,
+      recommendedOwnerCandidateAgentIds: ownerCandidates.map((candidate) => candidate.agentId),
+      recommendedOwnerCandidates: ownerCandidates,
+      recommendedAction:
+        `Review ${issueLabel(issue)} and make the next action explicit: wake the assignee, delegate/block on a follow-up issue, schedule a monitor, mark it blocked with real blockers, or close it if complete.`,
+    });
+  }
+
   function blockedFindingForLeaf(
     source: IssueLivenessIssueInput,
     blocker: IssueLivenessIssueInput,
@@ -599,6 +629,11 @@ export function classifyIssueGraphLiveness(input: IssueGraphLivenessInput): Issu
     if (issue.status === "in_review" && !unresolvedBlockers.has(issue.id)) {
       const review = reviewFinding(issue, issue, [issue]);
       if (review) findings.push(review);
+    }
+
+    if (issue.status === "in_progress" && !unresolvedBlockers.has(issue.id)) {
+      const stranded = inProgressFinding(issue);
+      if (stranded) findings.push(stranded);
     }
   }
 

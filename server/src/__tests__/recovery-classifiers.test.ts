@@ -168,6 +168,89 @@ describe("recovery classifier boundary", () => {
     expect(exhausted[0]?.state).toBe("in_review_without_action_path");
   });
 
+  it("classifies assigned in-progress issues with no execution or waiting path as stranded", () => {
+    const issues = [
+      {
+        id: issueId,
+        companyId,
+        identifier: "PAP-2946",
+        title: "Finish orphaned work",
+        status: "in_progress",
+        assigneeAgentId: agentId,
+        assigneeUserId: null,
+        createdByAgentId: null,
+        createdByUserId: null,
+        executionState: null,
+      },
+    ];
+    const agents = [
+      {
+        id: agentId,
+        companyId,
+        name: "Coder",
+        role: "engineer",
+        status: "idle",
+        reportsTo: managerId,
+      },
+      {
+        id: managerId,
+        companyId,
+        name: "CTO",
+        role: "cto",
+        status: "idle",
+        reportsTo: null,
+      },
+    ];
+
+    const findings = classifyIssueGraphLiveness({
+      issues,
+      relations: [],
+      agents,
+    });
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      issueId,
+      recoveryIssueId: issueId,
+      state: "in_progress_without_action_path",
+      recommendedOwnerAgentId: agentId,
+    });
+    expect(findings[0]?.recommendedAction).toContain("wake the assignee");
+  });
+
+  it("does not classify assigned in-progress issues when an active run owns execution", () => {
+    const findings = classifyIssueGraphLiveness({
+      issues: [
+        {
+          id: issueId,
+          companyId,
+          identifier: "PAP-2947",
+          title: "Active work",
+          status: "in_progress",
+          assigneeAgentId: agentId,
+          assigneeUserId: null,
+          createdByAgentId: null,
+          createdByUserId: null,
+          executionState: null,
+        },
+      ],
+      relations: [],
+      agents: [
+        {
+          id: agentId,
+          companyId,
+          name: "Coder",
+          role: "engineer",
+          status: "running",
+          reportsTo: managerId,
+        },
+      ],
+      activeRuns: [{ companyId, issueId, agentId, status: "running" }],
+    });
+
+    expect(findings).toEqual([]);
+  });
+
   it("keeps run liveness continuation decision parity with the compatibility export", () => {
     const input = {
       run: {
