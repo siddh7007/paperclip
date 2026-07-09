@@ -150,6 +150,31 @@ describe("run liveness classifier", () => {
     expect(classification.livenessState).toBe("empty_response");
   });
 
+  it("does not treat CI polling comments as a live in-progress disposition", () => {
+    const latestEvidenceAt = new Date("2026-07-09T23:14:51Z");
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issueCommentBodies: [
+        [
+          "ANA-370 live CI poll update — explicit continuation.",
+          "I addressed the steward wake by polling the current GitHub Actions job for PR #4881.",
+          "The old AppLayout failure is no longer the current state; no new failure log exists yet.",
+          "Disposition: in_progress with a live continuation path.",
+          "Next action/owner: GitHub Actions VM105 self-hosted runner fleet continues the in-progress Typecheck + affected tests job.",
+        ].join("\n"),
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        activityEventsCreated: 2,
+        latestEvidenceAt,
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+    expect(classification.livenessReason).toContain("acknowledgement-only");
+    expect(classification.lastUsefulActionAt).toBeNull();
+  });
+
   it("still treats comments with a concrete delegation as progress", () => {
     const classification = classifyRunLiveness({
       ...baseInput,
