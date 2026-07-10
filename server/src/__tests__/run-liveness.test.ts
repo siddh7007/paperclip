@@ -106,6 +106,123 @@ describe("run liveness classifier", () => {
     expect(classification.livenessState).toBe("advanced");
   });
 
+  it("does not treat acknowledgement-only comments as progress", () => {
+    const latestEvidenceAt = new Date("2026-04-18T12:00:00Z");
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issue: {
+        status: "in_progress",
+        title: "Planning bucket",
+        description: "Coordinate child work.",
+      },
+      issueCommentBodies: [
+        [
+          "Continuation check for PAP-1.",
+          "Confirmed the child issue is already assigned to another agent.",
+          "Disposition: leaving PAP-1 in_progress as the parent bucket while child work proceeds.",
+          "No code was edited and I did not start a competing stream.",
+        ].join("\n"),
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        latestEvidenceAt,
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+    expect(classification.livenessReason).toContain("acknowledgement-only");
+    expect(classification.lastUsefulActionAt).toBeNull();
+  });
+
+  it("does not let planning-bucket acknowledgements use the planning exemption", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issue: {
+        status: "in_progress",
+        title: "Implementation planning bucket",
+        description: "Create a plan and coordinate child slices.",
+      },
+      resultJson: {
+        summary: "Steward update: reviewed the board state; no action required. Keeping PAP-1 in_progress as the parent bucket.",
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+  });
+
+  it("does not treat CI polling comments as a live in-progress disposition", () => {
+    const latestEvidenceAt = new Date("2026-07-09T23:14:51Z");
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issueCommentBodies: [
+        [
+          "ANA-370 live CI poll update — explicit continuation.",
+          "I addressed the steward wake by polling the current GitHub Actions job for PR #4881.",
+          "The old AppLayout failure is no longer the current state; no new failure log exists yet.",
+          "Disposition: in_progress with a live continuation path.",
+          "Next action/owner: GitHub Actions VM105 self-hosted runner fleet continues the in-progress Typecheck + affected tests job.",
+        ].join("\n"),
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        activityEventsCreated: 2,
+        latestEvidenceAt,
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+    expect(classification.livenessReason).toContain("acknowledgement-only");
+    expect(classification.lastUsefulActionAt).toBeNull();
+  });
+
+  it("does not treat deploy-poll handoff output as progress", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      resultJson: {
+        summary: [
+          "in_progress — PR #4972 has passed required CI and auto-merged; final VM101 deploy proof is now running.",
+          "",
+          "Evidence:",
+          "- PR #4972 merged: https://github.com/siddh7007/Ananta-Design-platform/pull/4972",
+          "- Required CI passed.",
+          "- VM101 deploy run for the post-fix merge commit is now in progress.",
+          "",
+          "Disposition:",
+          "- `in_progress`",
+          "- Live continuation path: wait for VM101 deploy run `29128226475` to complete, inspect result/logs, and only close if that post-fix deploy succeeds.",
+        ].join("\n"),
+      },
+      issueCommentBodies: [
+        "Posted a status-only GitHub issue update; final deploy proof is still running.",
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        activityEventsCreated: 1,
+        latestEvidenceAt: new Date("2026-07-10T22:52:50Z"),
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+    expect(classification.livenessReason).toContain("acknowledgement-only");
+    expect(classification.lastUsefulActionAt).toBeNull();
+  });
+
+  it("still treats comments with a concrete delegation as progress", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issueCommentBodies: [
+        "Status update: created follow-up issue PAP-2 and assigned it to Engineering. Next action: PAP-2 implements the slice.",
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        activityEventsCreated: 1,
+        latestEvidenceAt: new Date("2026-04-18T12:00:00Z"),
+      },
+    });
+
+    expect(classification.livenessState).toBe("advanced");
+  });
+
   it("classifies done issues as completed", () => {
     const classification = classifyRunLiveness({
       ...baseInput,

@@ -1425,8 +1425,10 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     });
     expect(recoveryAction?.nextAction).toContain("Repair the source issue workspace link");
 
-    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
-    expect(comments.some((comment) => comment.body.includes("workspace failed validation"))).toBe(true);
+    await waitForValue(async () => {
+      const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
+      return comments.some((comment) => comment.body.includes("workspace failed validation")) ? true : null;
+    });
   });
 
   it("queues one finish-handoff wake when a successful run leaves in-progress work without a next action", async () => {
@@ -3364,6 +3366,63 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(comments[0]?.body).toContain("still has no live execution path");
     expect(comments[0]?.body).toContain(`Recovery action: \`${recoveryAction.id}\``);
     expect(comments[0]?.body).toContain("Recovery owner: [CodexCoder]");
+  });
+
+  it("blocks repeated productive continuation retries when adapter context only preserves wakeReason", async () => {
+    const previousRunId = randomUUID();
+    const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "succeeded",
+      livenessState: "advanced",
+    });
+    await db.insert(heartbeatRuns).values({
+      id: previousRunId,
+      companyId,
+      agentId,
+      invocationSource: "automation",
+      triggerDetail: "system",
+      status: "succeeded",
+      contextSnapshot: { issueId, taskId: issueId, wakeReason: "issue_continuation_needed" },
+      startedAt: new Date("2026-03-18T23:50:00.000Z"),
+      finishedAt: new Date("2026-03-18T23:55:00.000Z"),
+      createdAt: new Date("2026-03-18T23:50:00.000Z"),
+      updatedAt: new Date("2026-03-18T23:55:00.000Z"),
+    });
+    await db
+      .update(heartbeatRuns)
+      .set({
+        retryOfRunId: previousRunId,
+        contextSnapshot: {
+          issueId,
+          taskId: issueId,
+          taskKey: issueId,
+          wakeReason: "issue_continuation_needed",
+          wakeSource: "automation",
+          wakeTriggerDetail: "system",
+        },
+      })
+      .where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.continuationRequeued).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(result.issueIds).toEqual([issueId]);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("blocked");
+
+    await expectSourceScopedStrandedRecoveryAction({
+      companyId,
+      agentId,
+      issueId,
+      runId,
+      previousStatus: "in_progress",
+      retryReason: null,
+    });
+
+    const runs = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, agentId));
+    expect(runs.filter((row) => row.retryOfRunId === runId)).toHaveLength(0);
   });
 
   it("allows one productive-terminal recovery after regular continuation recovery made progress", async () => {

@@ -75,6 +75,14 @@ const RUNNABLE_RE =
 const PLAN_TASK_TITLE_RE = /\b(?:plan|planning|analysis|investigation|research|report|proposal|design doc|write-?up)\b/i;
 const PLAN_TASK_DESCRIPTION_RE =
   /\b(?:create|write|produce|draft|update|revise|prepare)\s+(?:a\s+|the\s+)?(?:plan|analysis|investigation|research report|report|proposal|design doc|write-?up)\b/i;
+const ACKNOWLEDGEMENT_ONLY_RE =
+  /\b(?:(?:acknowledg(?:e(?:d|ment)?|ing)|status update|steward update|continuation check|confirmed|reviewed|fetched|observed)\b[\s\S]{0,120}\b(?:no (?:code|repo files?|implementation|github|pr) (?:was )?(?:changed|edited|touched|mutated|opened)|did not (?:start|open|mutate|duplicate|change|edit)|not duplicating|no action (?:taken|required))|(?:leaving|keeping)\s+\S+\s+in[_ -]progress|\bparent bucket\b[\s\S]{0,160}\b(?:in[_ -]progress|child|children)\b)/i;
+const STATUS_ONLY_CONTINUATION_RE =
+  /\b(?:explicit continuation|live ci poll update|ci poll update|steward tick|current evidence|evidence)\b[\s\S]{0,900}\b(?:only remaining gate|check (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|job (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|deploy (?:proof|run|job) (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|poll (?:the |current |job|check)|wait for|waiting on (?:ci|github actions|runner|check|deploy)|in[_ -]progress with a live continuation path|live continuation path)\b/i;
+const INVALID_IN_PROGRESS_DISPOSITION_RE =
+  /\b(?:disposition\s*:\s*)?in[_ -]progress\b[\s\S]{0,260}\b(?:live continuation path|external|ci|github actions|runner|poll|check|job|deploy proof|deploy run|wait for|waiting on)\b/i;
+const DISPOSITION_OR_ACTION_RE =
+  /\b(?:marked|moved|set|updated)\b[\s\S]{0,80}\b(?:done|cancelled|canceled|blocked|in_review|in review|todo)\b|\b(?:created|assigned|woke|delegated|opened|merged|pushed|filed|linked)\b[\s\S]{0,80}\b(?:issue|task|run|wake|pr|pull request|branch|blocker|follow-?up)\b|\b(?:next action|next step|unblock owner|recovery path)\s*:/i;
 
 function compactReason(reason: string) {
   return reason.length <= 500 ? reason : `${reason.slice(0, 497)}...`;
@@ -161,6 +169,16 @@ export function looksLikePlanningOnly(input: RunLivenessClassificationInput) {
   const text = actionabilityText(input);
   if (!text) return false;
   return PLANNING_ONLY_RE.test(text) || NEXT_STEPS_RE.test(text) || /^\s*next(?: steps?| action)?\s*:/im.test(text);
+}
+
+export function looksLikeAcknowledgementOnly(input: RunLivenessClassificationInput) {
+  const text = actionabilityText(input);
+  if (!text) return false;
+  const acknowledgementOnly = ACKNOWLEDGEMENT_ONLY_RE.test(text);
+  const statusOnlyContinuation = STATUS_ONLY_CONTINUATION_RE.test(text) || INVALID_IN_PROGRESS_DISPOSITION_RE.test(text);
+  if (!acknowledgementOnly && !statusOnlyContinuation) return false;
+  if (statusOnlyContinuation) return true;
+  return !DISPOSITION_OR_ACTION_RE.test(text);
 }
 
 export function isPlanningOrDocumentTask(issue: RunLivenessIssueInput | null | undefined) {
@@ -299,6 +317,7 @@ export function classifyRunLiveness(input: RunLivenessClassificationInput): RunL
   const concreteEvidence = hasConcreteActionEvidence(evidence);
   const planExempt = isPlanningOrDocumentTask(input.issue) || evidence.planDocumentRevisionsCreated > 0;
   const lastUsefulActionAt = concreteEvidence ? evidence.latestEvidenceAt : null;
+  const acknowledgementOnly = looksLikeAcknowledgementOnly(input);
 
   const output = (state: RunLivenessState, reason: string, nextAction: string | null = null): RunLivenessClassification => ({
     livenessState: state,
@@ -323,6 +342,10 @@ export function classifyRunLiveness(input: RunLivenessClassificationInput): RunL
 
   if (!usefulOutput && !concreteEvidence) {
     return output("empty_response", "Run succeeded without useful output or concrete action evidence");
+  }
+
+  if (acknowledgementOnly) {
+    return output("empty_response", "Run produced acknowledgement-only/status-only output without a concrete disposition or action");
   }
 
   if (concreteEvidence) {
