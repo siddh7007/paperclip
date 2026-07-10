@@ -78,9 +78,9 @@ const PLAN_TASK_DESCRIPTION_RE =
 const ACKNOWLEDGEMENT_ONLY_RE =
   /\b(?:(?:acknowledg(?:e(?:d|ment)?|ing)|status update|steward update|continuation check|confirmed|reviewed|fetched|observed)\b[\s\S]{0,120}\b(?:no (?:code|repo files?|implementation|github|pr) (?:was )?(?:changed|edited|touched|mutated|opened)|did not (?:start|open|mutate|duplicate|change|edit)|not duplicating|no action (?:taken|required))|(?:leaving|keeping)\s+\S+\s+in[_ -]progress|\bparent bucket\b[\s\S]{0,160}\b(?:in[_ -]progress|child|children)\b)/i;
 const STATUS_ONLY_CONTINUATION_RE =
-  /\b(?:explicit continuation|live ci poll update|ci poll update|steward tick)\b[\s\S]{0,700}\b(?:only remaining gate|check (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|job (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|poll (?:the |current |job|check)|waiting on (?:ci|github actions|runner|check)|in[_ -]progress with a live continuation path)\b/i;
+  /\b(?:explicit continuation|live ci poll update|ci poll update|steward tick|current evidence|evidence)\b[\s\S]{0,900}\b(?:only remaining gate|check (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|job (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|deploy (?:proof|run|job) (?:is |remains )?(?:queued|pending|running|in[_ -]progress)|poll (?:the |current |job|check)|wait for|waiting on (?:ci|github actions|runner|check|deploy)|in[_ -]progress with a live continuation path|live continuation path)\b/i;
 const INVALID_IN_PROGRESS_DISPOSITION_RE =
-  /\bdisposition\s*:\s*in[_ -]progress\b[\s\S]{0,160}\b(?:live continuation path|external|ci|github actions|runner|poll|check|job)\b/i;
+  /\b(?:disposition\s*:\s*)?in[_ -]progress\b[\s\S]{0,260}\b(?:live continuation path|external|ci|github actions|runner|poll|check|job|deploy proof|deploy run|wait for|waiting on)\b/i;
 const DISPOSITION_OR_ACTION_RE =
   /\b(?:marked|moved|set|updated)\b[\s\S]{0,80}\b(?:done|cancelled|canceled|blocked|in_review|in review|todo)\b|\b(?:created|assigned|woke|delegated|opened|merged|pushed|filed|linked)\b[\s\S]{0,80}\b(?:issue|task|run|wake|pr|pull request|branch|blocker|follow-?up)\b|\b(?:next action|next step|unblock owner|recovery path)\s*:/i;
 

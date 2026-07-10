@@ -175,6 +175,38 @@ describe("run liveness classifier", () => {
     expect(classification.lastUsefulActionAt).toBeNull();
   });
 
+  it("does not treat deploy-poll handoff output as progress", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      resultJson: {
+        summary: [
+          "in_progress — PR #4972 has passed required CI and auto-merged; final VM101 deploy proof is now running.",
+          "",
+          "Evidence:",
+          "- PR #4972 merged: https://github.com/siddh7007/Ananta-Design-platform/pull/4972",
+          "- Required CI passed.",
+          "- VM101 deploy run for the post-fix merge commit is now in progress.",
+          "",
+          "Disposition:",
+          "- `in_progress`",
+          "- Live continuation path: wait for VM101 deploy run `29128226475` to complete, inspect result/logs, and only close if that post-fix deploy succeeds.",
+        ].join("\n"),
+      },
+      issueCommentBodies: [
+        "Posted a status-only GitHub issue update; final deploy proof is still running.",
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        activityEventsCreated: 1,
+        latestEvidenceAt: new Date("2026-07-10T22:52:50Z"),
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+    expect(classification.livenessReason).toContain("acknowledgement-only");
+    expect(classification.lastUsefulActionAt).toBeNull();
+  });
+
   it("still treats comments with a concrete delegation as progress", () => {
     const classification = classifyRunLiveness({
       ...baseInput,
