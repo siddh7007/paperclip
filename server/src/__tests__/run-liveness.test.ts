@@ -58,6 +58,26 @@ describe("run liveness classifier", () => {
     expect(classification.lastUsefulActionAt).toBe(latestEvidenceAt);
   });
 
+  it("does not treat acknowledgement-only issue comments as concrete progress", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      issueCommentBodies: [
+        [
+          "Acknowledged latest orchestration recovery comment.",
+          "I did not reopen or change Gate 0/code/runtime config.",
+          "The only remaining condition is external VM101 deploy outcome.",
+        ].join("\n"),
+      ],
+      evidence: {
+        issueCommentsCreated: 1,
+        latestEvidenceAt: new Date("2026-04-18T12:00:00Z"),
+      },
+    });
+
+    expect(classification.livenessState).toBe("empty_response");
+    expect(classification.lastUsefulActionAt).toBeNull();
+  });
+
   it("does not treat workspace operations alone as concrete progress", () => {
     const classification = classifyRunLiveness({
       ...baseInput,
