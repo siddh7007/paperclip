@@ -362,8 +362,7 @@ function isProductiveContinuationRun(latestRun: LatestIssueRun) {
   return latestRun?.status === "succeeded" &&
     (latestRun.livenessState === "advanced" ||
       latestRun.livenessState === "completed" ||
-      latestRun.livenessState === "blocked" ||
-      latestRun.livenessState === "needs_followup");
+      latestRun.livenessState === "blocked");
 }
 
 function isRepeatedProductiveContinuationRecovery(latestRun: SuccessfulLatestIssueRun) {
@@ -2812,6 +2811,23 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
         const successfulRun = latestRun;
 
         if (!isProductiveContinuationRun(successfulRun)) {
+          if (successfulRun.livenessState === "needs_followup") {
+            const updated = await escalateStrandedAssignedIssue({
+              issue,
+              previousStatus: "in_progress",
+              latestRun: successfulRun,
+              comment:
+                "Paperclip detected a successful continuation run that still requires follow-up and has no live execution path. " +
+                "Moving it to `blocked` so a recovery owner must choose a real disposition instead of another acknowledgement-only handoff.",
+            });
+            if (updated) {
+              result.escalated += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
+            continue;
+          }
           result.successfulContinuationObserved += 1;
           result.skipped += 1;
           continue;

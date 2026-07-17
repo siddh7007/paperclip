@@ -75,6 +75,12 @@ const RUNNABLE_RE =
 const PLAN_TASK_TITLE_RE = /\b(?:plan|planning|analysis|investigation|research|report|proposal|design doc|write-?up)\b/i;
 const PLAN_TASK_DESCRIPTION_RE =
   /\b(?:create|write|produce|draft|update|revise|prepare)\s+(?:a\s+|the\s+)?(?:plan|analysis|investigation|research report|report|proposal|design doc|write-?up)\b/i;
+const ACKNOWLEDGEMENT_ONLY_RE =
+  /\b(?:acknowledg(?:e|ed|ement)|noted|received|confirmed|re-?checked|verified|status update|follow-?up)\b/i;
+const DISPOSITION_RE =
+  /\b(?:disposition\s*:\s*(?:done|cancelled|blocked|in_review|in review|delegated|explicit continuation)|marked?\s+(?:the\s+)?issue\s+(?:done|cancelled|blocked|in_review|in review)|blocked\s+with\s+owner\s*\/\s*action|created\s+(?:a\s+)?(?:follow-?up|child)\s+issue|opened\s+(?:a\s+)?(?:follow-?up|child)\s+issue)\b/i;
+const CONCRETE_MUTATION_RE =
+  /\b(?:implemented|fixed|patched|changed|updated|created|deleted|renamed|wrote|added|removed|pushed|opened\s+(?:a\s+)?pr|merged|deployed|ran\s+(?:tests?|build|lint|typecheck)|posted\s+(?:a\s+)?(?:github\s+)?comment|commented\s+on\s+github)\b/i;
 
 function compactReason(reason: string) {
   return reason.length <= 500 ? reason : `${reason.slice(0, 497)}...`;
@@ -197,6 +203,27 @@ export function hasConcreteActionEvidence(evidence: Partial<RunLivenessEvidenceI
   );
 }
 
+function hasOnlyIssueCommentEvidence(evidence: RunLivenessEvidenceInput) {
+  return evidence.issueCommentsCreated > 0 &&
+    evidence.documentRevisionsCreated === 0 &&
+    evidence.workProductsCreated === 0 &&
+    evidence.activityEventsCreated === 0 &&
+    evidence.toolOrActionEventsCreated === 0;
+}
+
+function isAcknowledgementOnlyText(text: string) {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  if (DISPOSITION_RE.test(normalized) || CONCRETE_MUTATION_RE.test(normalized)) return false;
+  return ACKNOWLEDGEMENT_ONLY_RE.test(normalized);
+}
+
+export function looksLikeAcknowledgementOnlyRun(input: RunLivenessClassificationInput) {
+  const sources = highSignalSources(input);
+  if (sources.length === 0) return false;
+  return sources.every(isAcknowledgementOnlyText);
+}
+
 function evidenceReason(evidence: RunLivenessEvidenceInput) {
   const parts: string[] = [];
   if (evidence.issueCommentsCreated > 0) parts.push(`${evidence.issueCommentsCreated} issue comment(s)`);
@@ -295,8 +322,10 @@ export function classifyRunLiveness(input: RunLivenessClassificationInput): RunL
   const actionability = classifyRunActionability(input);
   const nextAction = extractNextAction(input);
   const issueStatus = input.issue?.status ?? null;
-  const usefulOutput = hasUsefulOutput(input);
-  const concreteEvidence = hasConcreteActionEvidence(evidence);
+  const acknowledgementOnlyOutput = looksLikeAcknowledgementOnlyRun(input);
+  const usefulOutput = hasUsefulOutput(input) && !acknowledgementOnlyOutput;
+  const concreteEvidence = hasConcreteActionEvidence(evidence) &&
+    !(acknowledgementOnlyOutput && hasOnlyIssueCommentEvidence(evidence));
   const planExempt = isPlanningOrDocumentTask(input.issue) || evidence.planDocumentRevisionsCreated > 0;
   const lastUsefulActionAt = concreteEvidence ? evidence.latestEvidenceAt : null;
 
